@@ -113,6 +113,7 @@ def inspect(paths: list[Path], size: tuple[int, int] | None, video: bool,
 
 def prepare(collection: Collection, directory: Path,
             background: tuple[int, int, int],
+            image_fit: str,
             progress: Callable[[int, int], None] | None = None,
             cancelled: Callable[[], bool] | None = None) -> None:
     for index, path in enumerate(collection.paths):
@@ -120,11 +121,17 @@ def prepare(collection: Collection, directory: Path,
             raise ConversionCancelled("Conversion cancelled.")
         try:
             with Image.open(path) as source:
-                fitted = ImageOps.contain(source.convert("RGBA"), collection.canvas,
-                                          method=Image.Resampling.LANCZOS)
+                rgba = source.convert("RGBA")
+                if image_fit == "shrink" and rgba.width <= collection.canvas[0] and rgba.height <= collection.canvas[1]:
+                    fitted = rgba
+                elif image_fit == "preserve":
+                    fitted = rgba
+                else:
+                    fitted = ImageOps.contain(rgba, collection.canvas, method=Image.Resampling.LANCZOS)
                 canvas = Image.new("RGB", collection.canvas, background)
                 offset = ((canvas.width - fitted.width) // 2, (canvas.height - fitted.height) // 2)
-                canvas.paste(fitted, offset, fitted.getchannel("A"))
+                mask = fitted.getchannel("A") if "A" in fitted.getbands() else None
+                canvas.paste(fitted, offset, mask)
                 canvas.save(directory / f"frame-{index:08d}.png")
                 if progress is not None:
                     progress(index + 1, len(collection.paths))

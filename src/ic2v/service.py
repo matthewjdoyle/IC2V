@@ -53,6 +53,7 @@ class ConversionRequest:
     fps: float = 12
     size: tuple[int, int] | None = None
     background: tuple[int, int, int] = (0, 0, 0)
+    image_fit: str = "contain"
     ffmpeg: str | None = None
     paths: tuple[Path, ...] | None = None
 
@@ -191,7 +192,7 @@ def convert_request(
     emit(ProgressEvent(Phase.INSPECTING, f"Inspecting {request.input_dir.name}"))
     output = encoding.convert(
         request.input_dir, request.output, request.format, request.fps, executable,
-        request.size, request.background, warn, message, frames, cancel.is_cancelled,
+        request.size, request.background, request.image_fit, warn, message, frames, cancel.is_cancelled,
         request.paths,
     )
     emit(ProgressEvent(Phase.COMPLETE, f"Created {output}", 1, 1))

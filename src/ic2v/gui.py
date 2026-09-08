@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+import platform
+import subprocess
 import sys
 import threading
 
@@ -72,8 +74,15 @@ class ConversionWorker(QThread):
                     encoding.check_encoder(executable, request.format)
                     checked.add(encoder_key)
                 effective = ConversionRequest(
-                    request.input_dir, request.output, request.format, request.fps,
-                    request.size, request.background, executable, request.paths,
+                    input_dir=request.input_dir,
+                    output=request.output,
+                    format=request.format,
+                    fps=request.fps,
+                    size=request.size,
+                    background=request.background,
+                    image_fit=request.image_fit,
+                    ffmpeg=executable,
+                    paths=request.paths,
                 )
                 result = convert_request(
                     effective,
@@ -85,7 +94,7 @@ class ConversionWorker(QThread):
                 self.job_finished.emit(index, "complete", details)
             except ConversionCancelled:
                 self.job_finished.emit(index, "cancelled", "Conversion cancelled")
-            except (ConversionError, ValueError, OSError) as exc:
+            except Exception as exc:
                 self.job_finished.emit(index, "failed", str(exc))
             finally:
                 with self._lock:
@@ -263,6 +272,11 @@ class MainWindow(QMainWindow):
         self.size = QLineEdit("1920x1080")
         self.size.setPlaceholderText("WIDTHxHEIGHT")
         form.addRow("Raster size", self.size)
+        self.image_fit = QComboBox()
+        self.image_fit.addItem("Expand/shrink to fit canvas", "contain")
+        self.image_fit.addItem("Shrink to fit canvas", "shrink")
+        self.image_fit.addItem("Preserve image size", "preserve")
+        form.addRow("Image scaling", self.image_fit)
         color_row = QHBoxLayout()
         color_row.setSpacing(8)
         self.color_swatch = QLabel()
@@ -306,8 +320,12 @@ class MainWindow(QMainWindow):
         self.reveal_button = QPushButton("Show output")
         self.reveal_button.clicked.connect(self._reveal_output)
         self.reveal_button.setEnabled(False)
+        self.reveal_folder_button = QPushButton("Show in folder")
+        self.reveal_folder_button.clicked.connect(self._reveal_folder)
+        self.reveal_folder_button.setEnabled(False)
         row.addLayout(copy, 1)
         row.addWidget(self.reveal_button)
+        row.addWidget(self.reveal_folder_button)
         layout.addLayout(row)
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
@@ -339,6 +357,8 @@ class MainWindow(QMainWindow):
         self.background.setText(saved.background)
         mode_index = self.nested_mode.findData(saved.nested_mode)
         self.nested_mode.setCurrentIndex(max(mode_index, 0))
+        fit_index = self.image_fit.findData(saved.image_fit)
+        self.image_fit.setCurrentIndex(max(fit_index, 0))
         self._update_mode_note()
         self._update_swatch(saved.background)
 
@@ -447,11 +467,12 @@ class MainWindow(QMainWindow):
         if selected:
             self.output_dir.setText(selected)
 
-    def _settings(self) -> tuple[float, tuple[int, int] | None, tuple[int, int, int]]:
+    def _settings(self) -> tuple[float, tuple[int, int] | None, tuple[int, int, int], str]:
         fps = preferences.validate_fps(self.fps.currentText())
         size = None if self.auto_size.isChecked() else parse_size(self.size.text().strip())
         background = parse_background(self.background.text().strip())
-        return fps, size, background
+        image_fit = self.image_fit.currentData()
+        return fps, size, background, image_fit
 
     def _job_output(self, job: PlannedCollection, fmt: str,
                     output_root: Path | None) -> Path:
@@ -464,7 +485,7 @@ class MainWindow(QMainWindow):
         return f"{stem}.{fmt}"
 
     def _requests(self) -> list[ConversionRequest]:
-        fps, size, background = self._settings()
+        fps, size, background, image_fit = self._settings()
         output_root = Path(self.output_dir.text()).resolve() if self.output_dir.text().strip() else None
         if output_root is not None and not output_root.is_dir():
             raise ValueError("The selected output folder does not exist.")
@@ -472,7 +493,7 @@ class MainWindow(QMainWindow):
         return [
             ConversionRequest(
                 job.input_dir, self._job_output(job, fmt, output_root), fmt, fps,
-                size, background, paths=job.paths,
+                size, background, image_fit, paths=job.paths,
             )
             for job in self.jobs if job.frame_count
         ]
@@ -488,6 +509,7 @@ class MainWindow(QMainWindow):
         saved = preferences.DesktopPreferences(
             self.format.currentText(), float(self.fps.currentText()), self.auto_size.isChecked(),
             self.size.text().strip(), self.background.text().strip(), self._current_mode().value,
+            self.image_fit.currentData(),
         )
         warnings: list[str] = []
         preferences.save_desktop(saved, warnings.append)
@@ -531,6 +553,7 @@ class MainWindow(QMainWindow):
             self.outputs[index] = output
             self.status_detail.setText(f"Saved {output.name}")
             self.reveal_button.setEnabled(True)
+            self.reveal_folder_button.setEnabled(True)
         elif state == "failed":
             self.status.setText("One output could not be created")
             self.status_detail.setText(details)
@@ -560,7 +583,7 @@ class MainWindow(QMainWindow):
     def _set_running(self, running: bool) -> None:
         for widget in (
             self.add_button, self.remove_button, self.format, self.fps, self.auto_size,
-            self.size, self.background, self.output_dir, self.nested_mode,
+            self.size, self.background, self.image_fit, self.output_dir, self.nested_mode,
             self.convert_button,
         ):
             widget.setEnabled(not running)
@@ -593,7 +616,9 @@ class MainWindow(QMainWindow):
 
     def _selection_changed(self, _row: int) -> None:
         self._update_ready_state()
-        self.reveal_button.setEnabled(self.queue.currentRow() in self.outputs)
+        has_output = self.queue.currentRow() in self.outputs
+        self.reveal_button.setEnabled(has_output)
+        self.reveal_folder_button.setEnabled(has_output)
 
     def _refresh_destinations(self, _value: str | None = None) -> None:
         if not hasattr(self, "destination_hint"):
@@ -610,7 +635,17 @@ class MainWindow(QMainWindow):
     def _reveal_output(self) -> None:
         output = self.outputs.get(self.queue.currentRow())
         if output:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(output.parent)))
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(output)))
+
+    def _reveal_folder(self) -> None:
+        output = self.outputs.get(self.queue.currentRow())
+        if output:
+            if platform.system() == "Windows":
+                subprocess.run(["explorer", "/select,", str(output)])
+            elif platform.system() == "Darwin":
+                subprocess.run(["open", "-R", str(output)])
+            else:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(output.parent)))
 
     def _cancel_current(self) -> None:
         if self.worker:
@@ -710,7 +745,15 @@ def main(paths: list[str] | None = None) -> int:
     app = QApplication([sys.argv[0], *arguments])
     app.setApplicationName("IC2V")
     app.setOrganizationName("IC2V")
-    icon = Path(__file__).with_name("assets") / "ic2v.svg"
+
+    if platform.system() == "Windows":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ic2v.desktop.app.1")
+        except Exception:
+            pass
+
+    icon = Path(__file__).with_name("assets") / "ic2v.ico"
     if icon.is_file():
         app.setWindowIcon(QIcon(str(icon)))
     window = MainWindow(arguments)

@@ -43,7 +43,7 @@ def test_failed_conversion_cleans_temporary_files(images, tmp_path, monkeypatch,
     monkeypatch.setattr(encoding, "run_ffmpeg", fail)
     output = tmp_path / "output" / "movie.mp4"
     with pytest.raises(type(error)):
-        encoding.convert(images, output, "mp4", 12, "ffmpeg", None, (0, 0, 0), lambda _: None, lambda _: None)
+        encoding.convert(images, output, "mp4", 12, "ffmpeg", None, (0, 0, 0), "contain", lambda _: None, lambda _: None)
     assert list(output.parent.iterdir()) == []
 
 

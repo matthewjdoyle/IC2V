@@ -49,7 +49,7 @@ def test_request_emits_structured_progress_and_warnings(images, tmp_path, monkey
     monkeypatch.setattr(encoding, "check_encoder", lambda *_: None)
 
     def fake_convert(*args):
-        warn, message, frames = args[7], args[8], args[9]
+        warn, message, frames = args[8], args[9], args[10]
         warn("Mixed dimensions")
         message("input images: 3 frames, 32x24, 12 fps")
         frames(2, 3)

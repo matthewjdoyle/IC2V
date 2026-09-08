@@ -21,7 +21,7 @@ ic2v = "ic2v.cli:app"
 ic2v-gui = "ic2v.gui:main"
 
 [tool.setuptools.package-data]
-ic2v = ["assets/*.svg"]
+ic2v = ["assets/*.svg", "assets/*.ico"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

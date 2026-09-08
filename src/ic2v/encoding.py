@@ -109,7 +109,7 @@ def publish(temporary: Path, requested: Path) -> Path:
 
 
 def convert(directory: Path, output: Path, format: str, fps: float, executable: str,
-            size: tuple[int, int] | None, background: tuple[int, int, int],
+            size: tuple[int, int] | None, background: tuple[int, int, int], image_fit: str,
             warn: Callable[[str], None], progress: Callable[[str], None],
             frame_progress: Callable[[int, int], None] | None = None,
             cancelled: Callable[[], bool] | None = None,
@@ -124,7 +124,7 @@ def convert(directory: Path, output: Path, format: str, fps: float, executable: 
     # Same filesystem as the destination permits atomic replacement of our reservation.
     with tempfile.TemporaryDirectory(prefix=".ic2v-", dir=output.parent) as temporary:
         workspace = Path(temporary)
-        prepare(collection, workspace, background, frame_progress, cancelled)
+        prepare(collection, workspace, background, image_fit, frame_progress, cancelled)
         progress(f"{directory.name}: encoding {format.upper()}...")
         # Files moved out of TemporaryDirectory retain its private Windows ACL.
         # Stage the video directly beside the destination instead, so it inherits

@@ -38,6 +38,7 @@ class DesktopPreferences:
     size: str = "1920x1080"
     background: str = "black"
     nested_mode: str = "direct"
+    image_fit: str = "contain"
 
 
 def _load_data() -> dict:
@@ -102,6 +103,7 @@ def read_desktop(warn: Callable[[str], None]) -> DesktopPreferences:
             size=data.get("size", "1920x1080"),
             background=data.get("background", "black"),
             nested_mode=data.get("nested_mode", "direct"),
+            image_fit=data.get("image_fit", "contain"),
         )
         if prefs.format not in ("mp4", "mov", "webm", "gif"):
             raise ValueError("Invalid format")
@@ -109,6 +111,8 @@ def read_desktop(warn: Callable[[str], None]) -> DesktopPreferences:
             raise ValueError("Invalid canvas preference")
         if prefs.nested_mode not in ("direct", "flatten", "separate"):
             raise ValueError("Invalid nested-folder preference")
+        if prefs.image_fit not in ("contain", "shrink", "preserve"):
+            raise ValueError("Invalid image fit preference")
         from .collection import parse_background, parse_size
         parse_size(prefs.size)
         parse_background(prefs.background)

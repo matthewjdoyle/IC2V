@@ -54,7 +54,7 @@ def test_padding_transparency_and_explicit_canvas(tmp_path):
     collection = inspect([source], (4, 4), False, warnings.append)
     prepared = tmp_path / "prepared"
     prepared.mkdir()
-    prepare(collection, prepared, (0, 0, 255))
+    prepare(collection, prepared, (0, 0, 255), "contain")
     with Image.open(prepared / "frame-00000000.png") as frame:
         assert frame.size == (4, 4)
         assert frame.getpixel((0, 0)) == (0, 0, 255)
