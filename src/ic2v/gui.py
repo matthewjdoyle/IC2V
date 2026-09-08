@@ -13,8 +13,8 @@ import subprocess
 import sys
 import threading
 
-from PySide6.QtCore import QThread, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPainter, QPen
+from PySide6.QtCore import QSize, QThread, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QColorDialog, QComboBox, QFileDialog,
     QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
@@ -438,13 +438,54 @@ class MainWindow(QMainWindow):
             else:
                 detail = "No PNG frames found"
             output_name = self._preview_output_name(job, fmt)
-            item = QListWidgetItem(
-                f"{run:02d}   {job.label}\n{detail}    →  {output_name}"
-            )
+            item = QListWidgetItem()
             item.setToolTip(str(job.input_dir))
+            
+            widget = QWidget()
+            layout = QHBoxLayout(widget)
+            layout.setContentsMargins(10, 5, 10, 5)
+            
+            text_label = QLabel(f"{run:02d}   {job.label}\n{detail}    →  {output_name}")
             if not job.frame_count:
-                item.setForeground(QColor("#d8a65b"))
+                text_label.setStyleSheet("color: #d8a65b;")
+            layout.addWidget(text_label)
+            
+            layout.addStretch()
+            
+            if job.frame_count > 0:
+                scroll_area = QScrollArea()
+                scroll_area.setWidgetResizable(True)
+                scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+                scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+                scroll_area.setFixedHeight(70)
+                scroll_area.setMaximumWidth(600)
+                
+                scroll_widget = QWidget()
+                scroll_layout = QHBoxLayout(scroll_widget)
+                scroll_layout.setContentsMargins(0, 0, 0, 0)
+                scroll_layout.setSpacing(5)
+                
+                for p in job.paths[:10]:
+                    pixmap = QPixmap(str(p)).scaled(
+                        50, 50, Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation
+                    )
+                    img_label = QLabel()
+                    img_label.setPixmap(pixmap)
+                    scroll_layout.addWidget(img_label)
+                
+                if job.frame_count > 10:
+                    limit_label = QLabel(f"... and {job.frame_count - 10} more (max 10 previews)")
+                    limit_label.setStyleSheet("color: gray; font-size: 11px;")
+                    scroll_layout.addWidget(limit_label)
+                
+                scroll_area.setWidget(scroll_widget)
+                layout.addWidget(scroll_area)
+            
+            item.setSizeHint(QSize(0, 80 if job.frame_count > 0 else 50))
             self.queue.addItem(item)
+            self.queue.setItemWidget(item, widget)
         self.job_summary.setText(f"Σ  {valid} output{'s' if valid != 1 else ''}")
         self._refresh_destinations()
         self._update_ready_state()
