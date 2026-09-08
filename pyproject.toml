@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ic2v"
+version = "0.1.0"
+description = "Convert PNG image collections into videos and animated GIFs with FFmpeg"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["typer>=0.12,<1", "Pillow>=10,<13", "platformdirs>=4,<5"]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+
+[project.scripts]
+ic2v = "ic2v.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["integration: requires FFmpeg with libx264 and libvpx-vp9"]
