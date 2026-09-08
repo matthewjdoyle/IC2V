@@ -14,12 +14,12 @@ import sys
 import threading
 
 from PySide6.QtCore import QSize, QThread, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QDesktopServices, QFont, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QFont, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QColorDialog, QComboBox, QFileDialog,
     QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-    QListWidgetItem, QMainWindow, QMessageBox, QProgressBar, QPushButton,
-    QScrollArea, QSplitter, QVBoxLayout, QWidget,
+    QListWidgetItem, QMainWindow, QMenu, QMessageBox, QProgressBar, QPushButton,
+    QScrollArea, QSplitter, QSystemTrayIcon, QVBoxLayout, QWidget,
 )
 
 from . import encoding, preferences
@@ -158,7 +158,80 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._load_preferences()
         self.add_directories(initial_paths or [])
+        self._setup_tray()
+        self._setup_title_bar()
 
+    def _setup_title_bar(self) -> None:
+        if platform.system() == "Windows":
+            try:
+                import ctypes
+                DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+                DWMWA_CAPTION_COLOR = 35
+                
+                set_window_attribute = ctypes.windll.dwmapi.DwmSetWindowAttribute
+                set_window_attribute.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_uint32]
+                set_window_attribute.restype = ctypes.c_int32
+                
+                hwnd = int(self.winId())
+                
+                dark_mode = ctypes.c_int(1)
+                set_window_attribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(dark_mode), ctypes.sizeof(dark_mode))
+                
+                # ABGR color: #090B0E -> R:09, G:0B, B:0E -> 0x000E0B09
+                caption_color = ctypes.c_int(0x000E0B09)
+                set_window_attribute(hwnd, DWMWA_CAPTION_COLOR, ctypes.byref(caption_color), ctypes.sizeof(caption_color))
+            except Exception:
+                pass
+
+    def _setup_tray(self) -> None:
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        self.tray_icon = QSystemTrayIcon(self)
+        icon_path = Path(__file__).with_name("assets") / "ic2v.ico"
+        if icon_path.is_file():
+            self.tray_icon.setIcon(QIcon(str(icon_path)))
+        
+        QApplication.instance().setQuitOnLastWindowClosed(False)
+        
+        self.tray_menu = QMenu()
+        show_action = QAction("Show IC2V", self)
+        show_action.triggered.connect(self._show_from_tray)
+        quit_action = QAction("Quit", self)
+        quit_action.triggered.connect(self._quit_app)
+        
+        self.tray_menu.addAction(show_action)
+        self.tray_menu.addSeparator()
+        self.tray_menu.addAction(quit_action)
+        
+        self.tray_icon.setContextMenu(self.tray_menu)
+        self.tray_icon.activated.connect(self._tray_activated)
+        self.tray_icon.show()
+
+    def _show_from_tray(self) -> None:
+        self.showNormal()
+        self.activateWindow()
+
+    def _tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            self._show_from_tray()
+
+    def _quit_app(self) -> None:
+        if self.worker and self.worker.isRunning():
+            answer = QMessageBox.question(
+                self, "Cancel conversions?", "Quitting IC2V will cancel the current queue.",
+                QMessageBox.StandardButton.Close | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if answer == QMessageBox.StandardButton.Close:
+                self._close_when_done = True
+                self.worker.cancel_all()
+                if hasattr(self, "tray_icon"):
+                    self.tray_icon.hide()
+                QApplication.instance().quit()
+        else:
+            if hasattr(self, "tray_icon"):
+                self.tray_icon.hide()
+            QApplication.instance().quit()
     def _build_ui(self) -> None:
         root = QWidget()
         root.setObjectName("appRoot")
@@ -699,6 +772,11 @@ class MainWindow(QMainWindow):
             self.status.setText("Cancelling the queue…")
 
     def closeEvent(self, event) -> None:
+        if hasattr(self, "tray_icon") and self.tray_icon.isVisible():
+            self.hide()
+            event.ignore()
+            return
+            
         if self.worker and self.worker.isRunning():
             answer = QMessageBox.question(
                 self, "Cancel conversions?", "Closing IC2V will cancel the current queue.",
@@ -787,6 +865,11 @@ def main(paths: list[str] | None = None) -> int:
     app.setApplicationName("IC2V")
     app.setOrganizationName("IC2V")
 
+    tray_mode = False
+    if "--tray" in arguments:
+        tray_mode = True
+        arguments.remove("--tray")
+
     if platform.system() == "Windows":
         try:
             import ctypes
@@ -798,7 +881,8 @@ def main(paths: list[str] | None = None) -> int:
     if icon.is_file():
         app.setWindowIcon(QIcon(str(icon)))
     window = MainWindow(arguments)
-    window.show()
+    if not tray_mode:
+        window.show()
     return app.exec()
 
 

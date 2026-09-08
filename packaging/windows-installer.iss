@@ -26,13 +26,15 @@ CloseApplications=yes
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 
+[Tasks]
+Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
+Name: "startupicon"; Description: "Start in System Tray when Windows starts"; GroupDescription: "Shortcuts:"; Flags: unchecked
+
 [Icons]
 Name: "{group}\IC2V"; Filename: "{app}\IC2V.exe"; WorkingDir: "{app}"
 Name: "{userdesktop}\IC2V"; Filename: "{app}\IC2V.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 Name: "{userappdata}\Microsoft\Windows\SendTo\IC2V"; Filename: "{app}\IC2V.exe"; WorkingDir: "{app}"
-
-[Tasks]
-Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
+Name: "{userstartup}\IC2V"; Filename: "{app}\IC2V.exe"; Parameters: "--tray"; WorkingDir: "{app}"; Tasks: startupicon
 
 [Run]
 Filename: "{app}\IC2V.exe"; Description: "Launch IC2V"; Flags: nowait postinstall skipifsilent
