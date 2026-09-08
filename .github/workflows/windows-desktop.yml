@@ -1,0 +1,87 @@
+name: Windows desktop
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    env:
+      SIGNING_CERTIFICATE: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE }}
+      SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: x64
+      - name: Install dependencies
+        run: python -m pip install -e ".[test,desktop,desktop-test,build]"
+      - name: Test
+        shell: pwsh
+        run: |
+          $env:IC2V_TEST_FFMPEG = python -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())"
+          python -m pytest -q --basetemp "$env:RUNNER_TEMP\pytest"
+      - name: Build application
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm packaging/ic2v-gui.spec
+          python -m pip freeze | Set-Content dist\IC2V\BUILD_INFO.txt
+      - name: Require signing credentials for tagged releases
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          if (-not $env:SIGNING_CERTIFICATE -or -not $env:SIGNING_PASSWORD) {
+            throw "Tagged desktop releases require Windows signing secrets."
+          }
+      - name: Sign application
+        if: env.SIGNING_CERTIFICATE != ''
+        shell: pwsh
+        run: |
+          $certificate = Join-Path $env:RUNNER_TEMP "ic2v-signing.pfx"
+          [IO.File]::WriteAllBytes($certificate, [Convert]::FromBase64String($env:SIGNING_CERTIFICATE))
+          & signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f $certificate /p $env:SIGNING_PASSWORD dist\IC2V\IC2V.exe
+          if ($LASTEXITCODE -ne 0) { throw "Executable signing failed." }
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $env:IC2V_VERSION = python -c "import ic2v; print(ic2v.__version__)"
+          if ("${{ github.ref }}".StartsWith("refs/tags/")) {
+            $env:IC2V_VERSION = "${{ github.ref_name }}".TrimStart("v")
+          }
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\windows-installer.iss
+      - name: Sign installer
+        if: env.SIGNING_CERTIFICATE != ''
+        shell: pwsh
+        run: |
+          $certificate = Join-Path $env:RUNNER_TEMP "ic2v-signing.pfx"
+          $installer = Get-ChildItem dist\IC2V-*-setup.exe | Select-Object -First 1
+          & signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f $certificate /p $env:SIGNING_PASSWORD $installer.FullName
+          if ($LASTEXITCODE -ne 0) { throw "Installer signing failed." }
+      - name: Install and smoke test
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist\IC2V-*-setup.exe | Select-Object -First 1
+          Start-Process $installer.FullName -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait
+          $installed = Join-Path $env:LOCALAPPDATA 'Programs\IC2V\IC2V.exe'
+          if (-not (Test-Path $installed)) { throw "Installed executable was not found." }
+          $sendTo = Join-Path $env:APPDATA 'Microsoft\Windows\SendTo\IC2V.lnk'
+          if (-not (Test-Path $sendTo)) { throw "Send To shortcut was not installed." }
+          $smoke = Start-Process $installed -ArgumentList '--smoke-test' -Wait -PassThru -WindowStyle Hidden
+          if ($smoke.ExitCode -ne 0) { throw "Packaged encoder smoke test failed." }
+      - name: Checksums
+        shell: pwsh
+        run: |
+          Get-FileHash dist\IC2V-*-setup.exe -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  $([IO.Path]::GetFileName($_.Path))" } |
+            Set-Content dist\SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ic2v-windows-${{ github.run_number }}
+          path: |
+            dist/IC2V-*-setup.exe
+            dist/SHA256SUMS.txt
