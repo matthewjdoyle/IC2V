@@ -12,9 +12,16 @@ dependencies = ["typer>=0.12,<1", "Pillow>=10,<13", "platformdirs>=4,<5"]
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10"]
+desktop = ["PySide6>=6.7,<7", "imageio-ffmpeg>=0.6,<1"]
+build = ["PyInstaller>=6.10,<7", "imageio-ffmpeg>=0.6,<1", "PySide6>=6.7,<7"]
+desktop-test = ["pytest-qt>=4.4,<5"]
 
 [project.scripts]
 ic2v = "ic2v.cli:app"
+ic2v-gui = "ic2v.gui:main"
+
+[tool.setuptools.package-data]
+ic2v = ["assets/*.svg", "assets/*.ico"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

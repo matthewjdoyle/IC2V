@@ -12,6 +12,7 @@ import pytest
 from typer.testing import CliRunner
 
 from ic2v.cli import app
+from ic2v.service import ConversionRequest, NestedMode, convert_request, plan_collections
 
 
 @pytest.mark.integration
@@ -76,6 +77,34 @@ def test_real_batch_mixed_images_and_corrupt_collection(tmp_path, ffmpeg):
                               "-f", "rawvideo", "-pix_fmt", "rgb24", "-vsync", "0", "-"],
                              capture_output=True, check=True).stdout
     assert len(decoded) == 32 * 26 * 3 * 2
+
+
+@pytest.mark.integration
+def test_recursive_flatten_encodes_naturally_ordered_nested_frames(tmp_path, ffmpeg):
+    root = tmp_path / "experiment"
+    scene2 = root / "scene2"
+    scene10 = root / "scene10"
+    scene2.mkdir(parents=True)
+    scene10.mkdir(parents=True)
+    Image.new("RGB", (16, 16), "red").save(root / "frame1.png")
+    Image.new("RGB", (16, 16), "green").save(scene2 / "frame1.png")
+    Image.new("RGB", (16, 16), "blue").save(scene10 / "frame1.png")
+    job = plan_collections([root], NestedMode.FLATTEN)[0]
+    output = tmp_path / "flattened.mp4"
+    result = convert_request(ConversionRequest(
+        root, output, fps=6, ffmpeg=ffmpeg, paths=job.paths,
+    ))
+    assert result.output == output
+    decoded = subprocess.run(
+        [ffmpeg, "-v", "error", "-i", str(output), "-f", "rawvideo",
+         "-pix_fmt", "rgb24", "-vsync", "0", "-"],
+        capture_output=True, check=True,
+    ).stdout
+    frame_bytes = 16 * 16 * 3
+    pixels = [decoded[index * frame_bytes:index * frame_bytes + 3] for index in range(3)]
+    assert pixels[0][0] > 200 and pixels[0][1] < 30
+    assert pixels[1][1] > 80 and pixels[1][0] < 30
+    assert pixels[2][2] > 200 and pixels[2][0] < 30
 
 
 @pytest.mark.integration

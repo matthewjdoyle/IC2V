@@ -23,6 +23,45 @@ You can also supply `--ffmpeg "path/to/ffmpeg"` to either command. The build
 must include `libx264` for MP4/MOV, `libvpx-vp9` for WebM, or `gif` for GIF.
 IC2V checks the selected encoder before processing. It does not download FFmpeg.
 
+## Desktop application and Windows integration
+
+Install the optional desktop dependencies to run the graphical application
+from a development checkout:
+
+```sh
+python -m pip install -e ".[desktop]"
+ic2v-gui
+```
+
+Drop one or more image folders onto the window, or pass folders to
+`ic2v-gui` as arguments. Each folder is queued as a separate collection. The
+default output is saved beside its source folder as `<folder-name>.mp4`.
+Settings, progress, warnings, cancellation, and collision-safe output naming
+are available without a terminal.
+
+The **Folder contents** setting controls nested folders:
+
+- **This folder only** (default) uses PNGs directly inside the selected folder.
+- **Combine all subfolders** recursively flattens every PNG into one output,
+  ordered naturally by its relative folder path and filename.
+- **Separate video per folder** recursively creates one output for every folder
+  that directly contains PNGs. Each output is saved beside that frame folder
+  unless a common output directory is selected.
+
+The packaged Windows installer includes FFmpeg and creates Start menu and
+**Send to → IC2V** shortcuts. Select one or more folders in Explorer and use
+Send to to open them together in the conversion queue. Building the installer
+requires the `build` extra, PyInstaller, and Inno Setup 6:
+
+```powershell
+python -m pip install -e ".[desktop,build]"
+.\packaging\build-windows.ps1
+```
+
+Review `packaging/THIRD_PARTY_NOTICES.md` and the exact bundled FFmpeg build
+before distributing an installer. Public releases should be Authenticode
+signed.
+
 ## Convert a collection
 
 ```sh

@@ -1,5 +1,5 @@
 """
-Discovers, validates, sizes, and normalizes PNG image collections.
+Discovers, validates, sizes, and normalizes image collections.
 
 Author: M J Doyle
 """
@@ -16,6 +16,10 @@ class ConversionError(Exception):
     """An actionable conversion failure safe to display to the user."""
 
 
+class ConversionCancelled(ConversionError):
+    """Raised when a conversion is cancelled before publication."""
+
+
 def natural_key(path: Path) -> tuple:
     pieces = re.split(r"(\d+)", path.name.casefold())
     return tuple((1, int(p)) if p.isdigit() else (0, p) for p in pieces), path.name
@@ -24,8 +28,34 @@ def natural_key(path: Path) -> tuple:
 def discover(directory: Path) -> list[Path]:
     if not directory.is_dir():
         raise ConversionError(f"Input directory does not exist: {directory}")
-    return sorted((p for p in directory.iterdir() if p.is_file() and p.suffix.lower() == ".png"),
+    return sorted((p for p in directory.iterdir() if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff", ".tif"}),
                   key=natural_key)
+
+
+def relative_natural_key(path: Path, root: Path) -> tuple:
+    """Naturally sort every component of a path relative to a collection root."""
+    return tuple(natural_key(Path(part)) for part in path.relative_to(root).parts)
+
+
+def discover_recursive(directory: Path) -> list[Path]:
+    """Find images at every depth without following directory symlinks."""
+    if not directory.is_dir():
+        raise ConversionError(f"Input directory does not exist: {directory}")
+    try:
+        paths = [path for path in directory.rglob("*")
+                 if path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff", ".tif"}]
+    except OSError as exc:
+        raise ConversionError(f"Could not inspect nested folders in {directory}: {exc}") from exc
+    return sorted(paths, key=lambda path: relative_natural_key(path, directory))
+
+
+def discover_collections(directory: Path) -> list[tuple[Path, list[Path]]]:
+    """Return every directory below root that directly contains image frames."""
+    paths = discover_recursive(directory)
+    grouped: dict[Path, list[Path]] = {}
+    for path in paths:
+        grouped.setdefault(path.parent, []).append(path)
+    return sorted(grouped.items(), key=lambda item: relative_natural_key(item[0], directory))
 
 
 def parse_size(value: str | None) -> tuple[int, int] | None:
@@ -57,17 +87,15 @@ class Collection:
 def inspect(paths: list[Path], size: tuple[int, int] | None, video: bool,
             warn: Callable[[str], None]) -> Collection:
     if not paths:
-        raise ConversionError("No PNG images found in this collection.")
+        raise ConversionError("No images found in this collection.")
     dimensions = []
     for path in paths:
         try:
             with Image.open(path) as frame:
-                if frame.format != "PNG":
-                    raise ValueError("File is not a PNG image")
                 frame.load()
                 dimensions.append(frame.size)
         except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError) as exc:
-            raise ConversionError(f"Cannot read PNG image {path}: {exc}") from exc
+            raise ConversionError(f"Cannot read image {path}: {exc}") from exc
     canvas = size or (max(w for w, _ in dimensions), max(h for _, h in dimensions))
     if video:
         even = tuple(n + n % 2 for n in canvas)
@@ -82,15 +110,28 @@ def inspect(paths: list[Path], size: tuple[int, int] | None, video: bool,
 
 
 def prepare(collection: Collection, directory: Path,
-            background: tuple[int, int, int]) -> None:
+            background: tuple[int, int, int],
+            image_fit: str,
+            progress: Callable[[int, int], None] | None = None,
+            cancelled: Callable[[], bool] | None = None) -> None:
     for index, path in enumerate(collection.paths):
+        if cancelled is not None and cancelled():
+            raise ConversionCancelled("Conversion cancelled.")
         try:
             with Image.open(path) as source:
-                fitted = ImageOps.contain(source.convert("RGBA"), collection.canvas,
-                                          method=Image.Resampling.LANCZOS)
+                rgba = source.convert("RGBA")
+                if image_fit == "shrink" and rgba.width <= collection.canvas[0] and rgba.height <= collection.canvas[1]:
+                    fitted = rgba
+                elif image_fit == "preserve":
+                    fitted = rgba
+                else:
+                    fitted = ImageOps.contain(rgba, collection.canvas, method=Image.Resampling.LANCZOS)
                 canvas = Image.new("RGB", collection.canvas, background)
                 offset = ((canvas.width - fitted.width) // 2, (canvas.height - fitted.height) // 2)
-                canvas.paste(fitted, offset, fitted.getchannel("A"))
+                mask = fitted.getchannel("A") if "A" in fitted.getbands() else None
+                canvas.paste(fitted, offset, mask)
                 canvas.save(directory / f"frame-{index:08d}.png")
+                if progress is not None:
+                    progress(index + 1, len(collection.paths))
         except (OSError, ValueError, Image.DecompressionBombError) as exc:
             raise ConversionError(f"Could not prepare image {path}: {exc}") from exc

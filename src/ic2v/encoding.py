@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 import uuid
 
-from .collection import ConversionError, discover, inspect, prepare
+from .collection import ConversionCancelled, ConversionError, discover, inspect, prepare
 
 
 ENCODERS = {"mp4": "libx264", "mov": "libx264", "webm": "libvpx-vp9", "gif": "gif"}
@@ -26,7 +26,7 @@ def resolve_ffmpeg(explicit: str | None) -> str:
     return executable
 
 
-def run_ffmpeg(arguments: list[str]) -> str:
+def run_ffmpeg(arguments: list[str], cancelled: Callable[[], bool] | None = None) -> str:
     # communicate() drains stderr while FFmpeg runs; cancellation must reap the child
     # before temporary files can be removed, particularly on Windows.
     try:
@@ -36,10 +36,28 @@ def run_ffmpeg(arguments: list[str]) -> str:
     except OSError as exc:
         raise ConversionError(f"Could not start FFmpeg: {exc}") from exc
     try:
-        stdout, stderr = process.communicate()
+        if cancelled is None:
+            stdout, stderr = process.communicate()
+        else:
+            while True:
+                if cancelled():
+                    process.terminate()
+                    try:
+                        process.communicate(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.communicate()
+                    raise ConversionCancelled("Conversion cancelled.")
+                try:
+                    stdout, stderr = process.communicate(timeout=0.1)
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
     except BaseException:
-        process.kill()
-        process.communicate()
+        poll = getattr(process, "poll", lambda: None)
+        if poll() is None:
+            process.kill()
+            process.communicate()
         raise
     if process.returncode:
         detail = stderr.strip()[-4000:] or f"exit code {process.returncode}"
@@ -91,16 +109,22 @@ def publish(temporary: Path, requested: Path) -> Path:
 
 
 def convert(directory: Path, output: Path, format: str, fps: float, executable: str,
-            size: tuple[int, int] | None, background: tuple[int, int, int],
-            warn: Callable[[str], None], progress: Callable[[str], None]) -> Path:
-    collection = inspect(discover(directory), size, format != "gif", warn)
+            size: tuple[int, int] | None, background: tuple[int, int, int], image_fit: str,
+            warn: Callable[[str], None], progress: Callable[[str], None],
+            frame_progress: Callable[[int, int], None] | None = None,
+            cancelled: Callable[[], bool] | None = None,
+            paths: list[Path] | tuple[Path, ...] | None = None) -> Path:
+    if cancelled is not None and cancelled():
+        raise ConversionCancelled("Conversion cancelled.")
+    collection = inspect(list(paths) if paths is not None else discover(directory),
+                         size, format != "gif", warn)
     progress(f"{directory.name}: {len(collection.paths)} frames, "
              f"{collection.canvas[0]}x{collection.canvas[1]}, {fps:g} fps")
     output.parent.mkdir(parents=True, exist_ok=True)
     # Same filesystem as the destination permits atomic replacement of our reservation.
     with tempfile.TemporaryDirectory(prefix=".ic2v-", dir=output.parent) as temporary:
         workspace = Path(temporary)
-        prepare(collection, workspace, background)
+        prepare(collection, workspace, background, image_fit, frame_progress, cancelled)
         progress(f"{directory.name}: encoding {format.upper()}...")
         # Files moved out of TemporaryDirectory retain its private Windows ACL.
         # Stage the video directly beside the destination instead, so it inherits
@@ -109,7 +133,7 @@ def convert(directory: Path, output: Path, format: str, fps: float, executable: 
         with encoded.open("xb"):
             pass
         try:
-            run_ffmpeg(command(executable, workspace, encoded, format, fps))
+            run_ffmpeg(command(executable, workspace, encoded, format, fps), cancelled)
             if not encoded.is_file() or encoded.stat().st_size == 0:
                 raise ConversionError("FFmpeg did not produce a nonempty output file.")
             return publish(encoded, output)

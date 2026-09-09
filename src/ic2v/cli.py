@@ -14,9 +14,10 @@ import typer
 
 from . import encoding, preferences
 from .collection import ConversionError, discover, natural_key, parse_background, parse_size
+from .service import ConversionRequest, Phase, convert_request
 
 
-app = typer.Typer(no_args_is_help=True, help="Convert PNG image collections into videos or GIFs.")
+app = typer.Typer(no_args_is_help=True, help="Convert image collections into videos or GIFs.")
 PRESETS = (6, 12, 24, 30)
 
 
@@ -66,7 +67,25 @@ def setup(format: str, fps: str | None, size: str | None,
     return rate, executable, canvas, color
 
 
-Input = Annotated[Path, typer.Argument(help="Directory containing PNG images.", exists=True,
+def run_conversion(input_dir: Path, output: Path, format: str, rate: float,
+                   executable: str, canvas: tuple[int, int] | None,
+                   color: tuple[int, int, int]) -> Path:
+    """Run the shared service while retaining the CLI's concise text output."""
+    def report(event) -> None:
+        if event.phase == Phase.WARNING:
+            warn(event.message)
+        elif event.phase in (Phase.INSPECTING, Phase.ENCODING) and ":" in event.message:
+            typer.echo(event.message)
+
+    result = convert_request(
+        ConversionRequest(input_dir, output, format, rate, canvas, color, executable),
+        report,
+        verify_encoder=False,
+    )
+    return result.output
+
+
+Input = Annotated[Path, typer.Argument(help="Directory containing images.", exists=True,
                                       file_okay=False, readable=True)]
 FPS = Annotated[str | None, typer.Option(help="Positive frame rate; omitted to select interactively.")]
 Size = Annotated[str | None, typer.Option(help="Output canvas WIDTHxHEIGHT; default is largest source dimensions.")]
@@ -87,8 +106,7 @@ def convert_command(
     try:
         format = output.suffix.lower().lstrip(".")
         rate, executable, canvas, color = setup(format, fps, size, background, ffmpeg)
-        result = encoding.convert(input_dir, output, format, rate, executable,
-                                  canvas, color, warn, typer.echo)
+        result = run_conversion(input_dir, output, format, rate, executable, canvas, color)
         typer.echo(f"Created {result}")
     except (ConversionError, ValueError, OSError) as exc:
         typer.echo(f"Error: {exc}", err=True)
@@ -115,11 +133,11 @@ def batch_command(
             typer.echo(f"[{index}/{len(children)}] {child.name}")
             try:
                 if not discover(child):
-                    typer.echo("Skipped: no PNG images.")
+                    typer.echo("Skipped: no images.")
                     skipped += 1
                     continue
-                result = encoding.convert(child, output_dir / f"{child.name}.{format}", format,
-                                          rate, executable, canvas, color, warn, typer.echo)
+                result = run_conversion(child, output_dir / f"{child.name}.{format}", format,
+                                        rate, executable, canvas, color)
                 typer.echo(f"Created {result}")
                 succeeded += 1
             except (ConversionError, OSError, ValueError) as exc:
@@ -127,7 +145,7 @@ def batch_command(
                 failed += 1
         typer.echo(f"Summary: {succeeded} succeeded, {skipped} skipped, {failed} failed.")
         if not succeeded and not failed:
-            typer.echo("Error: no eligible PNG collections found.", err=True)
+            typer.echo("Error: no eligible image collections found.", err=True)
         if failed or not succeeded:
             raise typer.Exit(1)
     except (ConversionError, ValueError, OSError) as exc:

@@ -43,7 +43,7 @@ def test_failed_conversion_cleans_temporary_files(images, tmp_path, monkeypatch,
     monkeypatch.setattr(encoding, "run_ffmpeg", fail)
     output = tmp_path / "output" / "movie.mp4"
     with pytest.raises(type(error)):
-        encoding.convert(images, output, "mp4", 12, "ffmpeg", None, (0, 0, 0), lambda _: None, lambda _: None)
+        encoding.convert(images, output, "mp4", 12, "ffmpeg", None, (0, 0, 0), "contain", lambda _: None, lambda _: None)
     assert list(output.parent.iterdir()) == []
 
 
@@ -73,3 +73,31 @@ def test_cancellation_kills_and_reaps_ffmpeg(monkeypatch):
         encoding.run_ffmpeg(["ffmpeg"])
     assert process.killed
     assert process.calls == 2
+
+
+def test_token_cancellation_terminates_and_reaps_ffmpeg(monkeypatch):
+    class Process:
+        returncode = None
+        terminated = False
+
+        def communicate(self, timeout=None):
+            if timeout == 2:
+                self.returncode = 0
+                return "", ""
+            raise subprocess.TimeoutExpired("ffmpeg", timeout)
+
+        def terminate(self):
+            self.terminated = True
+
+        def poll(self):
+            return self.returncode
+
+        def kill(self):
+            raise AssertionError("graceful termination should have completed")
+
+    import subprocess
+    process = Process()
+    monkeypatch.setattr(encoding.subprocess, "Popen", lambda *args, **kwargs: process)
+    with pytest.raises(ConversionError, match="cancelled"):
+        encoding.run_ffmpeg(["ffmpeg"], lambda: True)
+    assert process.terminated
