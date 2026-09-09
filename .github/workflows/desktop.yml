@@ -1,4 +1,4 @@
-name: Windows desktop
+name: Desktop builds
 
 on:
   workflow_dispatch:
@@ -85,3 +85,39 @@ jobs:
           path: |
             dist/IC2V-*-setup.exe
             dist/SHA256SUMS.txt
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install -e ".[test,desktop,desktop-test,build]"
+      - name: Build application
+        run: bash packaging/build-macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ic2v-macos-${{ github.run_number }}
+          path: |
+            dist/IC2V-macos.dmg
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install -e ".[test,desktop,desktop-test,build]"
+      - name: Build application
+        run: bash packaging/build-linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ic2v-linux-${{ github.run_number }}
+          path: |
+            dist/IC2V-linux-x86_64.tar.gz
+            dist/*.AppImage
+
