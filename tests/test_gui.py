@@ -31,7 +31,7 @@ def test_initial_paths_populate_independent_jobs(qtbot, images):
     window = MainWindow([str(images)])
     qtbot.addWidget(window)
     assert window.queue.count() == 1
-    assert "3 PNG frames" in window.queue.item(0).text()
+    assert "3 image frames" in window.queue.item(0).text()
     assert window.convert_button.isEnabled()
 
 
@@ -44,12 +44,12 @@ def test_nested_folder_modes_rebuild_the_output_plan(qtbot, images):
     qtbot.addWidget(window)
     assert window.nested_mode.currentData() == NestedMode.DIRECT.value
     assert window.queue.count() == 1
-    assert "3 PNG frames" in window.queue.item(0).text()
+    assert "3 image frames" in window.queue.item(0).text()
     window.nested_mode.setCurrentIndex(
         window.nested_mode.findData(NestedMode.FLATTEN.value)
     )
     assert window.queue.count() == 1
-    assert "5 PNG frames" in window.queue.item(0).text()
+    assert "5 image frames" in window.queue.item(0).text()
     window.nested_mode.setCurrentIndex(
         window.nested_mode.findData(NestedMode.SEPARATE.value)
     )
@@ -86,7 +86,7 @@ def test_empty_sources_do_not_shift_worker_job_indices(qtbot, images, tmp_path):
     window = MainWindow([str(empty), str(images)])
     qtbot.addWidget(window)
     assert window.queue.count() == 2
-    assert "No PNG frames found" in window.queue.item(0).text()
+    assert "No image frames found" in window.queue.item(0).text()
     requests = window._requests()
     assert len(requests) == 1
     assert requests[0].input_dir == images

@@ -1,5 +1,5 @@
 """
-Tests PNG discovery, image inspection, sizing, padding, and validation.
+Tests image discovery, image inspection, sizing, padding, and validation.
 
 Author: M J Doyle
 """
@@ -15,8 +15,8 @@ from ic2v.collection import (
 )
 
 
-def test_natural_order_and_direct_pngs(images):
-    (images / "ignored.jpg").touch()
+def test_natural_order_and_direct_images(images):
+    (images / "ignored.txt").touch()
     (images / "nested").mkdir()
     (images / "nested" / "other.png").touch()
     assert [p.name for p in discover(images)] == ["frame1.png", "frame2.PNG", "frame10.png"]
@@ -62,7 +62,7 @@ def test_padding_transparency_and_explicit_canvas(tmp_path):
     assert any("padding" in warning for warning in warnings)
 
 
-def test_corrupt_png_reports_path(tmp_path):
+def test_corrupt_image_reports_path(tmp_path):
     path = tmp_path / "broken.png"
     path.write_bytes(b"not a PNG")
     with pytest.raises(ConversionError, match="broken.png"):

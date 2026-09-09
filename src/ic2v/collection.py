@@ -1,5 +1,5 @@
 """
-Discovers, validates, sizes, and normalizes PNG image collections.
+Discovers, validates, sizes, and normalizes image collections.
 
 Author: M J Doyle
 """
@@ -28,7 +28,7 @@ def natural_key(path: Path) -> tuple:
 def discover(directory: Path) -> list[Path]:
     if not directory.is_dir():
         raise ConversionError(f"Input directory does not exist: {directory}")
-    return sorted((p for p in directory.iterdir() if p.is_file() and p.suffix.lower() == ".png"),
+    return sorted((p for p in directory.iterdir() if p.is_file() and p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff", ".tif"}),
                   key=natural_key)
 
 
@@ -38,19 +38,19 @@ def relative_natural_key(path: Path, root: Path) -> tuple:
 
 
 def discover_recursive(directory: Path) -> list[Path]:
-    """Find PNGs at every depth without following directory symlinks."""
+    """Find images at every depth without following directory symlinks."""
     if not directory.is_dir():
         raise ConversionError(f"Input directory does not exist: {directory}")
     try:
         paths = [path for path in directory.rglob("*")
-                 if path.is_file() and path.suffix.lower() == ".png"]
+                 if path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff", ".tif"}]
     except OSError as exc:
         raise ConversionError(f"Could not inspect nested folders in {directory}: {exc}") from exc
     return sorted(paths, key=lambda path: relative_natural_key(path, directory))
 
 
 def discover_collections(directory: Path) -> list[tuple[Path, list[Path]]]:
-    """Return every directory below root that directly contains PNG frames."""
+    """Return every directory below root that directly contains image frames."""
     paths = discover_recursive(directory)
     grouped: dict[Path, list[Path]] = {}
     for path in paths:
@@ -87,17 +87,15 @@ class Collection:
 def inspect(paths: list[Path], size: tuple[int, int] | None, video: bool,
             warn: Callable[[str], None]) -> Collection:
     if not paths:
-        raise ConversionError("No PNG images found in this collection.")
+        raise ConversionError("No images found in this collection.")
     dimensions = []
     for path in paths:
         try:
             with Image.open(path) as frame:
-                if frame.format != "PNG":
-                    raise ValueError("File is not a PNG image")
                 frame.load()
                 dimensions.append(frame.size)
         except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError) as exc:
-            raise ConversionError(f"Cannot read PNG image {path}: {exc}") from exc
+            raise ConversionError(f"Cannot read image {path}: {exc}") from exc
     canvas = size or (max(w for w, _ in dimensions), max(h for _, h in dimensions))
     if video:
         even = tuple(n + n % 2 for n in canvas)

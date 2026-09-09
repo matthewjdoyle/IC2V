@@ -157,6 +157,7 @@ class MainWindow(QMainWindow):
         self.setAcceptDrops(True)
         self._build_ui()
         self._load_preferences()
+        self._connect_preferences_signals()
         self.add_directories(initial_paths or [])
         self._setup_tray()
         self._setup_title_bar()
@@ -271,6 +272,7 @@ class MainWindow(QMainWindow):
         self.queue.setToolTip("Drop folders here or add them with the button below.")
         self.queue.directories_dropped.connect(self.add_directories)
         self.queue.currentRowChanged.connect(self._selection_changed)
+        self.queue.itemSelectionChanged.connect(self._update_queue_selection_colors)
         layout.addWidget(self.queue, 1)
         buttons = QHBoxLayout()
         self.add_button = QPushButton("＋  Add folder")
@@ -384,7 +386,7 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout()
         copy = QVBoxLayout()
         copy.setSpacing(1)
-        self.status = QLabel("Add a folder containing PNG files.")
+        self.status = QLabel("Add a folder containing image files.")
         self.status.setObjectName("status")
         self.status_detail = QLabel("")
         self.status_detail.setObjectName("statusDetail")
@@ -435,6 +437,34 @@ class MainWindow(QMainWindow):
         self._update_mode_note()
         self._update_swatch(saved.background)
 
+    def _connect_preferences_signals(self) -> None:
+        self.format.currentTextChanged.connect(self._save_preferences)
+        self.fps.currentTextChanged.connect(self._save_preferences)
+        self.auto_size.toggled.connect(self._save_preferences)
+        self.size.textChanged.connect(self._save_preferences)
+        self.background.textChanged.connect(self._save_preferences)
+        self.nested_mode.currentIndexChanged.connect(self._save_preferences)
+        self.image_fit.currentIndexChanged.connect(self._save_preferences)
+
+    def _save_preferences(self, *args) -> None:
+        try:
+            fps_text = self.fps.currentText().strip()
+            fps = float(fps_text) if fps_text else 12.0
+            
+            saved = preferences.DesktopPreferences(
+                format=self.format.currentText(),
+                fps=fps,
+                automatic_size=self.auto_size.isChecked(),
+                size=self.size.text().strip(),
+                background=self.background.text().strip(),
+                nested_mode=self._current_mode().value,
+                image_fit=self.image_fit.currentData(),
+            )
+            warnings: list[str] = []
+            preferences.save_desktop(saved, warnings.append)
+        except Exception:
+            pass
+
     def _current_mode(self) -> NestedMode:
         value = self.nested_mode.currentData()
         return NestedMode(value) if value is not None else NestedMode.DIRECT
@@ -476,9 +506,9 @@ class MainWindow(QMainWindow):
 
     def _update_mode_note(self) -> None:
         notes = {
-            NestedMode.DIRECT: "Use PNGs directly inside each selected folder.",
-            NestedMode.FLATTEN: "Combine PNGs from all nested folders into one video.",
-            NestedMode.SEPARATE: "Create one video for every folder that contains PNGs.",
+            NestedMode.DIRECT: "Use images directly inside each selected folder.",
+            NestedMode.FLATTEN: "Combine images from all nested folders into one video.",
+            NestedMode.SEPARATE: "Create one video for every folder that contains images.",
         }
         if hasattr(self, "mode_note"):
             self.mode_note.setText(notes[self._current_mode()])
@@ -507,9 +537,9 @@ class MainWindow(QMainWindow):
         for run, job in enumerate(self.jobs, 1):
             if job.frame_count:
                 valid += 1
-                detail = f"{job.frame_count} PNG frame{'s' if job.frame_count != 1 else ''}"
+                detail = f"{job.frame_count} image frame{'s' if job.frame_count != 1 else ''}"
             else:
-                detail = "No PNG frames found"
+                detail = "No image frames found"
             output_name = self._preview_output_name(job, fmt)
             item = QListWidgetItem()
             item.setToolTip(str(job.input_dir))
@@ -550,6 +580,7 @@ class MainWindow(QMainWindow):
                 
                 if job.frame_count > 10:
                     limit_label = QLabel(f"... and {job.frame_count - 10} more (max 10 previews)")
+                    limit_label.setObjectName("limitLabel")
                     limit_label.setStyleSheet("color: gray; font-size: 11px;")
                     scroll_layout.addWidget(limit_label)
                 
@@ -562,6 +593,7 @@ class MainWindow(QMainWindow):
         self.job_summary.setText(f"Σ  {valid} output{'s' if valid != 1 else ''}")
         self._refresh_destinations()
         self._update_ready_state()
+        self._update_queue_selection_colors()
 
     def _choose_color(self) -> None:
         initial = QColor(self.background.text())
@@ -689,10 +721,19 @@ class MainWindow(QMainWindow):
     def _set_item_status(self, index: int, status: str) -> None:
         job = self.jobs[index]
         fmt = self.format.currentText()
-        self.queue.item(index).setText(
-            f"{index + 1:02d}   {job.label}\n{status}    {job.frame_count} PNG frame"
+        new_text = (
+            f"{index + 1:02d}   {job.label}\n{status}    {job.frame_count} image frame"
             f"{'s' if job.frame_count != 1 else ''}    →  {self._preview_output_name(job, fmt)}"
         )
+        item = self.queue.item(index)
+        widget = self.queue.itemWidget(item)
+        if widget is not None:
+            # The text_label is the first widget in the layout
+            label = widget.layout().itemAt(0).widget()
+            if isinstance(label, QLabel):
+                label.setText(new_text)
+                return
+        item.setText(new_text)
 
     def _set_running(self, running: bool) -> None:
         for widget in (
@@ -722,10 +763,10 @@ class MainWindow(QMainWindow):
             self.status.setText(f"{valid} output{'s' if valid != 1 else ''} ready to create.")
             self.status_detail.setText("")
         elif self.sources:
-            self.status.setText("No PNG files found with this nested-folder setting.")
+            self.status.setText("No image files found with this nested-folder setting.")
             self.status_detail.setText("")
         else:
-            self.status.setText("Add a folder containing PNG files.")
+            self.status.setText("Add a folder containing image files.")
             self.status_detail.setText("")
 
     def _selection_changed(self, _row: int) -> None:
@@ -734,6 +775,28 @@ class MainWindow(QMainWindow):
         self.reveal_button.setEnabled(has_output)
         self.reveal_folder_button.setEnabled(has_output)
 
+    def _update_queue_selection_colors(self) -> None:
+        for i in range(self.queue.count()):
+            item = self.queue.item(i)
+            widget = self.queue.itemWidget(item)
+            if widget is not None:
+                job = self.jobs[i]
+                is_sel = item.isSelected()
+                
+                text_label = widget.layout().itemAt(0).widget()
+                if isinstance(text_label, QLabel):
+                    if is_sel:
+                        text_label.setStyleSheet("color: #090B0E;")
+                    else:
+                        text_label.setStyleSheet("color: #d8a65b;" if not job.frame_count else "")
+                
+                limit_label = widget.findChild(QLabel, "limitLabel")
+                if limit_label:
+                    if is_sel:
+                        limit_label.setStyleSheet("color: #4A535D; font-size: 11px;")
+                    else:
+                        limit_label.setStyleSheet("color: gray; font-size: 11px;")
+
     def _refresh_destinations(self, _value: str | None = None) -> None:
         if not hasattr(self, "destination_hint"):
             return
@@ -741,7 +804,7 @@ class MainWindow(QMainWindow):
         if self.output_dir.text().strip():
             text = f"All {valid or ''} outputs will be saved in the selected folder."
         elif self._current_mode() == NestedMode.SEPARATE:
-            text = "Each output will be saved beside the folder that contains its PNG frames."
+            text = "Each output will be saved beside the folder that contains its image frames."
         else:
             text = "Each output will be saved beside its selected source folder."
         self.destination_hint.setText(text.replace("All  outputs", "Outputs"))

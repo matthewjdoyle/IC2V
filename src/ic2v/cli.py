@@ -17,7 +17,7 @@ from .collection import ConversionError, discover, natural_key, parse_background
 from .service import ConversionRequest, Phase, convert_request
 
 
-app = typer.Typer(no_args_is_help=True, help="Convert PNG image collections into videos or GIFs.")
+app = typer.Typer(no_args_is_help=True, help="Convert image collections into videos or GIFs.")
 PRESETS = (6, 12, 24, 30)
 
 
@@ -85,7 +85,7 @@ def run_conversion(input_dir: Path, output: Path, format: str, rate: float,
     return result.output
 
 
-Input = Annotated[Path, typer.Argument(help="Directory containing PNG images.", exists=True,
+Input = Annotated[Path, typer.Argument(help="Directory containing images.", exists=True,
                                       file_okay=False, readable=True)]
 FPS = Annotated[str | None, typer.Option(help="Positive frame rate; omitted to select interactively.")]
 Size = Annotated[str | None, typer.Option(help="Output canvas WIDTHxHEIGHT; default is largest source dimensions.")]
@@ -133,7 +133,7 @@ def batch_command(
             typer.echo(f"[{index}/{len(children)}] {child.name}")
             try:
                 if not discover(child):
-                    typer.echo("Skipped: no PNG images.")
+                    typer.echo("Skipped: no images.")
                     skipped += 1
                     continue
                 result = run_conversion(child, output_dir / f"{child.name}.{format}", format,
@@ -145,7 +145,7 @@ def batch_command(
                 failed += 1
         typer.echo(f"Summary: {succeeded} succeeded, {skipped} skipped, {failed} failed.")
         if not succeeded and not failed:
-            typer.echo("Error: no eligible PNG collections found.", err=True)
+            typer.echo("Error: no eligible image collections found.", err=True)
         if failed or not succeeded:
             raise typer.Exit(1)
     except (ConversionError, ValueError, OSError) as exc:
